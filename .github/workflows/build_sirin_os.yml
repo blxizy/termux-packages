@@ -10,32 +10,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Core Packages from Source
+      - name: Fix Android SDK Permissions in Docker
         run: |
-          # 1. Создаем локальный скрипт, который выполнится ВНУТРИ докера
-          cat << 'EOF' > run_inside_docker.sh
-          #!/bin/bash
-          
-          # Железобетонно снимаем защиту со всей папки с Android SDK (игнорируя ошибки, если папки нет)
-          sudo chmod -R 777 /home/builder/lib || true
-          sudo chown -R $(whoami) /home/builder/lib || true
-
-          # Запускаем честную сборку всех пакетов, включая termux-am
-          ./build-package.sh -a aarch64 apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib
+          # Вытягиваем образ и вшиваем в него полные права на папку SDK (убиваем ошибку доступа)
+          docker pull ghcr.io/termux/package-builder:latest
+          cat << 'EOF' > Dockerfile.fix
+          FROM ghcr.io/termux/package-builder:latest
+          USER root
+          RUN chmod -R 777 /home/builder/lib || true
+          RUN chown -R builder:builder /home/builder/lib || true
+          USER builder
           EOF
-          
-          # 2. Делаем наш скрипт исполняемым
-          chmod +x run_inside_docker.sh
-          
-          # 3. Скармливаем наш скрипт докеру
-          ./scripts/run-docker.sh ./run_inside_docker.sh
+          docker build -t ghcr.io/termux/package-builder:latest -f Dockerfile.fix .
+
+      - name: Build Core Packages from Source
+        env:
+          # Жестко запрещаем скрипту перекачивать образ, чтобы не затер наш фикс
+          TERMUX_BUILD_IGNORE_DOCKER_UPDATE: "true"
+        run: |
+          # Полный список пакетов, включая капризный termux-am
+          PACKAGES="apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib"
+
+          # Запускаем сборку
+          ./scripts/run-docker.sh ./build-package.sh -a aarch64 $PACKAGES
 
       - name: Create Local Repository
         run: |
-          # Устанавливаем утилиты для создания репозитория
+          # Ставим утилиты и делаем локальный сервер для пакетов
           sudo apt-get update && sudo apt-get install -y dpkg-dev python3
-          
-          # Генерируем индексные файлы для свежесобранных пакетов
           cd output
           mkdir -p dists/termux/main/binary-aarch64
           dpkg-scanpackages . /dev/null > dists/termux/main/binary-aarch64/Packages
@@ -43,21 +45,17 @@ jobs:
 
       - name: Patch repo.json
         run: |
-          # Направляем сборщик бутстрапа на наш локальный сервер
+          # Направляем сборщик бутстрапа на наш сервер
           echo '[{"url": "http://localhost:8000", "distribution": "termux", "component": "main"}]' > repo.json
 
       - name: Generate Sirin Bootstrap
         run: |
-          # Запускаем локальный сервер в фоне
+          # Поднимаем сервер, упаковываем ядро, гасим сервер
           cd output
           python3 -m http.server 8000 &
           SERVER_PID=$!
           cd ..
-
-          # Запускаем упаковку (он скачает пакеты с нашего локального сервера)
           ./scripts/generate-bootstraps.sh --architectures aarch64
-
-          # Убиваем сервер
           kill $SERVER_PID
 
       - name: Upload Sirin Bootstrap

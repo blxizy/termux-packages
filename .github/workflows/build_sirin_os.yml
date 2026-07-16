@@ -1,0 +1,55 @@
+name: Build Sirin OS (aarch64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Core Packages from Source
+        run: |
+          # Список базовых пакетов ядра (зависимости соберутся автоматически)
+          PACKAGES="apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib"
+
+          # Запускаем официальный компилятор Termux
+          ./scripts/run-docker.sh ./build-package.sh -a aarch64 $PACKAGES
+
+      - name: Create Local Repository
+        run: |
+          # Устанавливаем утилиты для создания репозитория
+          sudo apt-get update && sudo apt-get install -y dpkg-dev python3
+          
+          # Генерируем индексные файлы для свежесобранных пакетов
+          cd output
+          mkdir -p dists/termux/main/binary-aarch64
+          dpkg-scanpackages . /dev/null > dists/termux/main/binary-aarch64/Packages
+          cd ..
+
+      - name: Patch repo.json
+        run: |
+          # Направляем сборщик бутстрапа на наш локальный сервер
+          echo '[{"url": "http://localhost:8000", "distribution": "termux", "component": "main"}]' > repo.json
+
+      - name: Generate Sirin Bootstrap
+        run: |
+          # Запускаем локальный сервер в фоне
+          cd output
+          python3 -m http.server 8000 &
+          SERVER_PID=$!
+          cd ..
+
+          # Запускаем упаковку (он скачает пакеты с нашего локального сервера)
+          ./scripts/generate-bootstraps.sh --architectures aarch64
+
+          # Убиваем сервер
+          kill $SERVER_PID
+
+      - name: Upload Sirin Bootstrap
+        uses: actions/upload-artifact@v4
+        with:
+          name: sirin-bootstrap-aarch64
+          path: "*.zip"

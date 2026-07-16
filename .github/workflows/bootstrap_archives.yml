@@ -1,67 +1,71 @@
-name: Build Sirin OS (aarch64)
+name: Generate bootstrap archives (android-7)
 
 on:
+  schedule:
+    - cron: "0 0 * * 0"
   workflow_dispatch:
+
+permissions: {} # none
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    permissions:
+      contents: read # actions/upload-artifact doesn't need contents: write
+    runs-on: ubuntu-slim
+    strategy:
+      matrix:
+        arch:
+          - aarch64
+          - arm
+          - i686
+          - x86_64
+    if: github.repository == 'termux/termux-packages'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build Core Packages from Source
-        run: |
-          # 1. Создаем локальный скрипт, который выполнится ВНУТРИ докера
-          cat << 'EOF' > run_inside_docker.sh
-          #!/bin/bash
-          
-          # Железобетонно снимаем защиту со всей папки с Android SDK (игнорируя ошибки, если папки нет)
-          sudo chmod -R 777 /home/builder/lib || true
-          sudo chown -R $(whoami) /home/builder/lib || true
-
-          # Запускаем честную сборку всех пакетов, включая termux-am
-          ./build-package.sh -a aarch64 apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib
-          EOF
-          
-          # 2. Делаем наш скрипт исполняемым
-          chmod +x run_inside_docker.sh
-          
-          # 3. Скармливаем наш скрипт докеру
-          ./scripts/run-docker.sh ./run_inside_docker.sh
-
-      - name: Create Local Repository
-        run: |
-          # Устанавливаем утилиты для создания репозитория
-          sudo apt-get update && sudo apt-get install -y dpkg-dev python3
-          
-          # Генерируем индексные файлы для свежесобранных пакетов
-          cd output
-          mkdir -p dists/termux/main/binary-aarch64
-          dpkg-scanpackages . /dev/null > dists/termux/main/binary-aarch64/Packages
-          cd ..
-
-      - name: Patch repo.json
-        run: |
-          # Направляем сборщик бутстрапа на наш локальный сервер
-          echo '[{"url": "http://localhost:8000", "distribution": "termux", "component": "main"}]' > repo.json
-
-      - name: Generate Sirin Bootstrap
-        run: |
-          # Запускаем локальный сервер в фоне
-          cd output
-          python3 -m http.server 8000 &
-          SERVER_PID=$!
-          cd ..
-
-          # Запускаем упаковку (он скачает пакеты с нашего локального сервера)
-          ./scripts/generate-bootstraps.sh --architectures aarch64
-
-          # Убиваем сервер
-          kill $SERVER_PID
-
-      - name: Upload Sirin Bootstrap
-        uses: actions/upload-artifact@v4
+      - name: Git clone
+        uses: actions/checkout@v7
+      - name: Create bootstrap archive
+        run: ./scripts/generate-bootstraps.sh --architectures ${{ matrix.arch }}
+      - name: Store artifacts
+        uses: actions/upload-artifact@v6
         with:
-          name: sirin-bootstrap-aarch64
+          name: bootstrap-archives-${{ matrix.arch }}-${{ github.sha }}
           path: "*.zip"
+  publish:
+    permissions:
+      contents: write # for git push
+    needs: build
+    runs-on: ubuntu-slim
+    steps:
+      - name: Git clone
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Fetch bootstrap archives
+        uses: actions/download-artifact@v7
+        with:
+          merge-multiple: true
+          path: ./
+      - name: Create new tag
+        id: get_tag
+        run: |
+          new_tag="bootstrap-$(date "+%Y.%m.%d")"
+          existing_tag_revision=$(git tag | grep "$new_tag" | sort -r | head -n 1 | cut -d- -f3 | cut -dr -f2)
+          if [ -n "$existing_tag_revision" ]; then
+            tag_rev=$((existing_tag_revision + 1))
+          else
+            tag_rev=1
+          fi
+          new_tag="${new_tag}-r${tag_rev}+apt.android-7"
+          echo "tag_name=$new_tag" >> $GITHUB_OUTPUT
+      - name: Publish bootstrap zips to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ steps.get_tag.outputs.tag_name }} --title "Bootstrap archives for Termux application (apt.android-7)"
+          for file in *.zip; do
+            gh release upload ${{ steps.get_tag.outputs.tag_name }} "$file"
+          done

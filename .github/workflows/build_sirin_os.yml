@@ -12,11 +12,23 @@ jobs:
 
       - name: Build Core Packages from Source
         run: |
-          # Список базовых пакетов ядра (зависимости соберутся автоматически)
-          PACKAGES="apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib"
+          # 1. Создаем локальный скрипт, который выполнится ВНУТРИ докера
+          cat << 'EOF' > run_inside_docker.sh
+          #!/bin/bash
+          
+          # Железобетонно снимаем защиту со всей папки с Android SDK (игнорируя ошибки, если папки нет)
+          sudo chmod -R 777 /home/builder/lib || true
+          sudo chown -R $(whoami) /home/builder/lib || true
 
-          # Выдаем права на папку Android SDK внутри докера, а затем запускаем честную сборку
-          ./scripts/run-docker.sh bash -c "sudo chown -R builder:builder /home/builder/lib/android-sdk-* || true; ./build-package.sh -a aarch64 $PACKAGES"
+          # Запускаем честную сборку всех пакетов, включая termux-am
+          ./build-package.sh -a aarch64 apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib
+          EOF
+          
+          # 2. Делаем наш скрипт исполняемым
+          chmod +x run_inside_docker.sh
+          
+          # 3. Скармливаем наш скрипт докеру
+          ./scripts/run-docker.sh ./run_inside_docker.sh
 
       - name: Create Local Repository
         run: |

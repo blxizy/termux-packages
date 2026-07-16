@@ -15,8 +15,8 @@ jobs:
           # Список базовых пакетов ядра (зависимости соберутся автоматически)
           PACKAGES="apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib"
 
-          # Запускаем официальный компилятор Termux
-          ./scripts/run-docker.sh ./build-package.sh -a aarch64 $PACKAGES
+          # Выдаем права на папку Android SDK внутри докера, а затем запускаем честную сборку
+          ./scripts/run-docker.sh bash -c "sudo chown -R builder:builder /home/builder/lib/android-sdk-* || true; ./build-package.sh -a aarch64 $PACKAGES"
 
       - name: Create Local Repository
         run: |

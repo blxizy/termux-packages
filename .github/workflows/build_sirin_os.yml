@@ -5,16 +5,15 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Host Environment & Android SDK
+      - name: Setup Android SDK
         run: |
-          # Официальная подготовка среды Termux на самом сервере
-          # Скачивает нужные компиляторы и правильный Android SDK перед стартом Docker
-          sudo ./scripts/setup-ubuntu.sh
+          # Скачиваем правильный Android SDK на сервер перед стартом Docker.
+          # Установку утилит хоста (setup-ubuntu.sh) пропускаем, так как всё собирается внутри Docker.
           ./scripts/setup-android-sdk.sh
 
       - name: Build Core Packages from Source

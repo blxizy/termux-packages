@@ -14,18 +14,19 @@ jobs:
         run: |
           # 1. Готовим Java для sdkmanager
           sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk-headless unzip
+          sudo apt-get install -y openjdk-17-jdk-headless
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           
           # 2. Скачиваем официальный базовый SDK Termux
           ./scripts/setup-android-sdk.sh
           
-          # 3. НАСИЛЬНО качаем API 33 и Build-Tools 30.0.3 прямо в папку Termux SDK
-          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/lib/android-sdk-9123335 "platforms;android-33" "build-tools;30.0.3"
+          # 3. НАСИЛЬНО качаем API 33 и Build-Tools 30.0.3 (игнорируя ошибку Broken Pipe от команды yes)
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/lib/android-sdk-9123335 "platforms;android-33" "build-tools;30.0.3" || true
           
-          # 4. Создаем папку кэша, если её нет, и снимаем все блокировки
-          mkdir -p ~/.termux-build
-          sudo chmod -R 777 ~/lib ~/.termux-build
+          # 4. БРОНЕЖИЛЕТ: Создаем папки принудительно и снимаем права, жестко игнорируя любые ошибки
+          mkdir -p ~/.termux-build ~/lib
+          sudo chmod -R 777 ~/lib ~/.termux-build || true
+          sudo chown -R 1000:1000 ~/lib ~/.termux-build || true
 
       - name: TEST BUILD ONLY - termux-am
         run: |

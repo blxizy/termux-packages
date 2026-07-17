@@ -33,13 +33,18 @@ jobs:
           cd $GITHUB_WORKSPACE
           find scripts -type f -exec sed -i 's|/home/builder/lib/android-sdk-[0-9]*|/home/builder/.termux-build/android-sdk|g' {} +
 
-      - name: Build All Termux Packages
+      - name: Build Core Packages
         run: |
-          # Запускаем сборку ВСЕХ пакетов. Наш хак гарантирует, что SDK всегда будет доступен и актуален.
-          ./scripts/run-docker.sh ./build-all.sh -a aarch64
+          # Собираем только самое необходимое для базовой системы, игнорируя сломанные пакеты с графикой
+          ./scripts/run-docker.sh ./build-package.sh -a aarch64 bash coreutils termux-tools termux-am termux-exec command-not-found curl grep sed tar
+          
+      - name: Generate Bootstrap
+        run: |
+          # Теперь, когда базовые .deb пакеты скомпилированы, запаковываем их в zip
+          ./scripts/run-docker.sh ./scripts/generate-bootstraps.sh --architectures aarch64
           
       - name: Upload Bootstrap Archive
         uses: actions/upload-artifact@v4
         with:
           name: sirin-os-bootstrap-aarch64
-          path: termux-packages/build/bootstraps/*.zip
+          path: build/bootstraps/*.zip

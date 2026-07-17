@@ -10,31 +10,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Pre-download SDK and Fix Permissions
+      - name: Inject SDK Hack into termux-am
         run: |
-          # 1. Готовим Java
-          sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk-headless
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          # Встраиваем "троянского коня" прямо в скрипт пакета
+          cat << 'EOF' >> packages/termux-am/build.sh
           
-          # 2. Скачиваем официальный базовый SDK Termux
-          ./scripts/setup-android-sdk.sh
-          
-          # 3. ОТДЕЛЬНО принимаем лицензии (чтобы не сломать pipe)
-          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/lib/android-sdk-9123335 --licenses || true
-          
-          # 4. СПОКОЙНО качаем API 33 и Build-Tools 30.0.3
-          /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/lib/android-sdk-9123335 "platforms;android-33" "build-tools;30.0.3"
-          
-          # 5. БРОНЕЖИЛЕТ ПРАВ ДОСТУПА: Отдаем папку юзеру Docker (UID 1000)
-          mkdir -p ~/.termux-build ~/lib
-          sudo chown -R 1000:1000 ~/lib ~/.termux-build
-          sudo chmod -R 777 ~/lib ~/.termux-build
-          
-          # 6. ХАК: Вырезаем режим Read-Only из скрипта запуска Докера!
-          sed -i 's/:ro/:rw/g' scripts/run-docker.sh || true
+          termux_step_pre_make() {
+              echo "=== 1. КЛОНИРУЕМ SDK В РАЗРЕШЕННУЮ ДЛЯ ЗАПИСИ ПАПКУ ==="
+              mkdir -p ~/.termux-build/custom-sdk
+              cp -r /home/builder/lib/android-sdk-*/* ~/.termux-build/custom-sdk/
+              export ANDROID_HOME=~/.termux-build/custom-sdk
+              
+              echo "=== 2. СКАЧИВАЕМ НЕДОСТАЮЩИЙ API 33 ==="
+              yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" "build-tools;30.0.3" || true
+              
+              echo "=== 3. ПРИНУДИТЕЛЬНО УКАЗЫВАЕМ ПУТЬ ДЛЯ GRADLE ==="
+              echo "sdk.dir=$ANDROID_HOME" > $TERMUX_PKG_SRCDIR/local.properties
+          }
+          EOF
 
       - name: TEST BUILD ONLY - termux-am
         run: |
-          # Собираем ТОЛЬКО проблемный пакет
+          # Запускаем штатную сборку, наш хак сработает изнутри контейнера
           ./scripts/run-docker.sh ./build-package.sh -a aarch64 termux-am

@@ -12,53 +12,18 @@ jobs:
 
       - name: Setup Android SDK and Fix Permissions
         run: |
-          # 1. Ставим нужную Java для скачивания
           sudo apt-get update
           sudo apt-get install -y openjdk-17-jdk-headless
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           
-          # 2. Скачиваем официальный Android SDK на сервер
+          # Скачиваем SDK на сервер
           ./scripts/setup-android-sdk.sh
           
-          # 3. ЖЕЛЕЗОБЕТОННЫЙ ФИКС: Меняем владельца папки на юзера Docker (UID 1000)
-          # Иначе внутри контейнера Gradle словит Permission Denied
+          # Перекрашиваем владельца папки на юзера Docker (UID 1000)
           sudo chown -R 1000:1000 ~/lib ~/.termux-build || true
           sudo chmod -R 777 ~/lib ~/.termux-build || true
 
-      - name: Build Core Packages from Source
+      - name: TEST BUILD ONLY - termux-am
         run: |
-          # Полный список пакетов, включая капризный termux-am
-          PACKAGES="apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib"
-
-          # Запускаем официальную сборку (Docker подхватит готовый SDK с правами)
-          ./scripts/run-docker.sh ./build-package.sh -a aarch64 $PACKAGES
-
-      - name: Create Local Repository
-        run: |
-          # Устанавливаем утилиты для локального сервера
-          sudo apt-get update && sudo apt-get install -y dpkg-dev python3
-          cd output
-          mkdir -p dists/termux/main/binary-aarch64
-          dpkg-scanpackages . /dev/null > dists/termux/main/binary-aarch64/Packages
-          cd ..
-
-      - name: Patch repo.json
-        run: |
-          # Направляем сборщик бутстрапа на локальный сервер
-          echo '[{"url": "http://localhost:8000", "distribution": "termux", "component": "main"}]' > repo.json
-
-      - name: Generate Sirin Bootstrap
-        run: |
-          # Поднимаем сервер, упаковываем ядро и гасим сервер
-          cd output
-          python3 -m http.server 8000 &
-          SERVER_PID=$!
-          cd ..
-          ./scripts/generate-bootstraps.sh --architectures aarch64
-          kill $SERVER_PID
-
-      - name: Upload Sirin Bootstrap
-        uses: actions/upload-artifact@v4
-        with:
-          name: sirin-bootstrap-aarch64
-          path: "*.zip"
+          # ПОСЛАЛИ ВСЁ НА ХУЙ: Тестируем только один проблемный пакет!
+          ./scripts/run-docker.sh ./build-package.sh -a aarch64 termux-am

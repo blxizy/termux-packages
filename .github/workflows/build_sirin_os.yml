@@ -10,23 +10,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Android SDK and Pre-download API 33
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk-headless
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-          
-          # 1. Скачиваем официальный базовый SDK Termux
-          ./scripts/setup-android-sdk.sh
-          
-          # 2. ВОТ ОНО: Принудительно докачиваем старые зависимости ДО запуска Docker!
-          yes | ~/lib/android-sdk-*/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" "build-tools;30.0.3"
-          
-          # 3. На всякий случай перекрашиваем права
-          sudo chown -R 1000:1000 ~/lib ~/.termux-build || true
-          sudo chmod -R 777 ~/lib ~/.termux-build || true
-
       - name: TEST BUILD ONLY - termux-am
         run: |
-          # Тестируем ТОЛЬКО один проблемный пакет
-          ./scripts/run-docker.sh ./build-package.sh -a aarch64 termux-am
+          # ПОСЛАЛИ ВСЁ НА ХУЙ: Делаем грязный хак прямо внутри Docker-контейнера
+          cat << 'EOF' > run_inside_docker.sh
+          #!/bin/bash
+          
+          echo "=== 1. УБИВАЕМ БЛОКИРОВКУ ПРАВ НА ВШИТОМ SDK ==="
+          sudo chmod -R 777 /home/builder/lib/android-sdk-*
+          
+          echo "=== 2. НАСИЛЬНО КАЧАЕМ API 33 ДО ЗАПУСКА GRADLE ==="
+          yes | /home/builder/lib/android-sdk-*/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" "build-tools;30.0.3"
+          
+          echo "=== 3. СОБИРАЕМ ТОЛЬКО TERMUX-AM ==="
+          ./build-package.sh -a aarch64 termux-am
+          EOF
+          
+          # Делаем скрипт исполняемым и скармливаем его докеру
+          chmod +x run_inside_docker.sh
+          ./scripts/run-docker.sh ./run_inside_docker.sh

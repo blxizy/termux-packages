@@ -10,9 +10,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Pre-download SDK and Fix Permissions
+      - name: Pre-download SDK
         run: |
-          # 1. Готовим Java для sdkmanager
+          # 1. Готовим Java
           sudo apt-get update
           sudo apt-get install -y openjdk-17-jdk-headless
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
@@ -20,15 +20,15 @@ jobs:
           # 2. Скачиваем официальный базовый SDK Termux
           ./scripts/setup-android-sdk.sh
           
-          # 3. НАСИЛЬНО качаем API 33 и Build-Tools 30.0.3 (игнорируя ошибку Broken Pipe от команды yes)
-          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/lib/android-sdk-9123335 "platforms;android-33" "build-tools;30.0.3" || true
+          # 3. ОТДЕЛЬНО принимаем лицензии (чтобы не сломать pipe при установке)
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/lib/android-sdk-9123335 --licenses || true
           
-          # 4. БРОНЕЖИЛЕТ: Создаем папки принудительно и снимаем права, жестко игнорируя любые ошибки
-          mkdir -p ~/.termux-build ~/lib
-          sudo chmod -R 777 ~/lib ~/.termux-build || true
-          sudo chown -R 1000:1000 ~/lib ~/.termux-build || true
+          # 4. СПОКОЙНО качаем API 33 и Build-Tools 30.0.3 (без команды yes)
+          # Теперь sdkmanager не крашнется от Broken pipe и корректно переименует папки!
+          /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/lib/android-sdk-9123335 "platforms;android-33" "build-tools;30.0.3"
 
       - name: TEST BUILD ONLY - termux-am
         run: |
-          # Собираем ТОЛЬКО проблемный пакет
+          # Запускаем докер. Он примонтирует ~/lib как READ-ONLY, 
+          # но теперь там УЖЕ лежат нужные API, и Gradle соберет всё без скачиваний!
           ./scripts/run-docker.sh ./build-package.sh -a aarch64 termux-am

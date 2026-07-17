@@ -10,22 +10,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Android SDK
+      - name: Setup Android SDK and Fix Permissions
         run: |
-          # Устанавливаем Java 17 точно в ту системную папку, которую жестко требует скрипт
+          # 1. Ставим нужную Java для скачивания
           sudo apt-get update
           sudo apt-get install -y openjdk-17-jdk-headless
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           
-          # Теперь скрипт найдет Java там, где ожидает, и скачает SDK без ошибок
+          # 2. Скачиваем официальный Android SDK на сервер
           ./scripts/setup-android-sdk.sh
+          
+          # 3. ЖЕЛЕЗОБЕТОННЫЙ ФИКС: Меняем владельца папки на юзера Docker (UID 1000)
+          # Иначе внутри контейнера Gradle словит Permission Denied
+          sudo chown -R 1000:1000 ~/lib ~/.termux-build || true
+          sudo chmod -R 777 ~/lib ~/.termux-build || true
 
       - name: Build Core Packages from Source
         run: |
-          # Полный список пакетов, включая termux-am
+          # Полный список пакетов, включая капризный termux-am
           PACKAGES="apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib"
 
-          # Запускаем официальную сборку (Docker подхватит готовый SDK с сервера)
+          # Запускаем официальную сборку (Docker подхватит готовый SDK с правами)
           ./scripts/run-docker.sh ./build-package.sh -a aarch64 $PACKAGES
 
       - name: Create Local Repository

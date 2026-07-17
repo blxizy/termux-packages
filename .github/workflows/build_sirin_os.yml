@@ -10,14 +10,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Pre-download SDK and Patch Termux Scripts
+      - name: Setup Host Environment & Android SDK (with Custom SDK Fix)
         run: |
+          # Официальная подготовка среды Termux на самом сервере
+          sudo ./scripts/setup-ubuntu.sh
+          ./scripts/setup-android-sdk.sh
+
           echo "=== 1. Готовим Java на сервере ==="
           sudo apt-get update
           sudo apt-get install -y openjdk-17-jdk-headless unzip
           export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           
-          echo "=== 2. Создаем свой SDK в кэш-папке (которая пробросится в Докер с правами) ==="
+          echo "=== 2. Создаем свой SDK в кэш-папке (пробрасывается в Докер с правами) ==="
           SDK_DIR=$HOME/.termux-build/android-sdk
           mkdir -p $SDK_DIR/cmdline-tools
           cd $SDK_DIR/cmdline-tools
@@ -33,18 +37,40 @@ jobs:
           cd $GITHUB_WORKSPACE
           find scripts -type f -exec sed -i 's|/home/builder/lib/android-sdk-[0-9]*|/home/builder/.termux-build/android-sdk|g' {} +
 
-      - name: Build Core Packages
+      - name: Build Core Packages from Source
         run: |
-          # Собираем только самое необходимое для базовой системы, игнорируя сломанные пакеты с графикой
-          ./scripts/run-docker.sh ./build-package.sh -a aarch64 bash coreutils termux-tools termux-am termux-exec command-not-found curl grep sed tar
-          
-      - name: Generate Bootstrap
+          # Полный список пакетов, включая termux-am
+          PACKAGES="apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib"
+
+          # Запускаем сборку (Docker подхватит наш рабочий SDK из кэша)
+          ./scripts/run-docker.sh ./build-package.sh -a aarch64 $PACKAGES
+
+      - name: Create Local Repository
         run: |
-          # Теперь, когда базовые .deb пакеты скомпилированы, запаковываем их в zip
-          ./scripts/run-docker.sh ./scripts/generate-bootstraps.sh --architectures aarch64
-          
-      - name: Upload Bootstrap Archive
+          # Устанавливаем утилиты для локального сервера
+          sudo apt-get update && sudo apt-get install -y dpkg-dev python3
+          cd output
+          mkdir -p dists/termux/main/binary-aarch64
+          dpkg-scanpackages . /dev/null > dists/termux/main/binary-aarch64/Packages
+          cd ..
+
+      - name: Patch repo.json
+        run: |
+          # Направляем сборщик бутстрапа на локальный сервер
+          echo '[{"url": "http://localhost:8000", "distribution": "termux", "component": "main"}]' > repo.json
+
+      - name: Generate Sirin Bootstrap
+        run: |
+          # Поднимаем сервер, упаковываем ядро и гасим сервер
+          cd output
+          python3 -m http.server 8000 &
+          SERVER_PID=$!
+          cd ..
+          ./scripts/generate-bootstraps.sh --architectures aarch64
+          kill $SERVER_PID
+
+      - name: Upload Sirin Bootstrap
         uses: actions/upload-artifact@v4
         with:
-          name: sirin-os-bootstrap-aarch64
-          path: build/bootstraps/*.zip
+          name: sirin-bootstrap-aarch64
+          path: "*.zip"

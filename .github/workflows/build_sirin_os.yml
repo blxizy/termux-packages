@@ -10,23 +10,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Host Environment & Android SDK
+        run: |
+          # Официальная подготовка среды Termux на самом сервере
+          # Скачивает нужные компиляторы и правильный Android SDK перед стартом Docker
+          sudo ./scripts/setup-ubuntu.sh
+          ./scripts/setup-android-sdk.sh
+
       - name: Build Core Packages from Source
         run: |
-          # 1. Запускаем контейнер вхолостую, чтобы он развернулся в фоне
-          ./scripts/run-docker.sh echo "Init container"
-          
-          # 2. Взламываем работающий контейнер от лица root и снимаем блокировку с Android SDK
-          docker exec --user root termux-package-builder chown -R builder:builder /home/builder/lib
-          docker exec --user root termux-package-builder chmod -R 777 /home/builder/lib
-
-          # 3. Полный список пакетов без вырезаний
+          # Полный список пакетов, включая termux-am
           PACKAGES="apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib"
 
-          # 4. Запускаем честную сборку (теперь Gradle сможет докачать API 33)
+          # Запускаем официальную сборку (Docker подхватит готовый SDK с сервера)
           ./scripts/run-docker.sh ./build-package.sh -a aarch64 $PACKAGES
 
       - name: Create Local Repository
         run: |
+          # Устанавливаем утилиты для локального сервера
           sudo apt-get update && sudo apt-get install -y dpkg-dev python3
           cd output
           mkdir -p dists/termux/main/binary-aarch64
@@ -35,10 +36,12 @@ jobs:
 
       - name: Patch repo.json
         run: |
+          # Направляем сборщик бутстрапа на локальный сервер
           echo '[{"url": "http://localhost:8000", "distribution": "termux", "component": "main"}]' > repo.json
 
       - name: Generate Sirin Bootstrap
         run: |
+          # Поднимаем сервер, упаковываем ядро и гасим сервер
           cd output
           python3 -m http.server 8000 &
           SERVER_PID=$!

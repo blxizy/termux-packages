@@ -10,26 +10,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Inject SDK Hack into termux-am
+      - name: Create Custom SDK and Patch Termux Scripts
         run: |
-          # Встраиваем "троянского коня" прямо в скрипт пакета
-          cat << 'EOF' >> packages/termux-am/build.sh
+          echo "=== 1. Готовим Java на сервере ==="
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk-headless unzip
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           
-          termux_step_pre_make() {
-              echo "=== 1. КЛОНИРУЕМ SDK В РАЗРЕШЕННУЮ ДЛЯ ЗАПИСИ ПАПКУ ==="
-              mkdir -p ~/.termux-build/custom-sdk
-              cp -r /home/builder/lib/android-sdk-*/* ~/.termux-build/custom-sdk/
-              export ANDROID_HOME=~/.termux-build/custom-sdk
-              
-              echo "=== 2. СКАЧИВАЕМ НЕДОСТАЮЩИЙ API 33 ==="
-              yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-33" "build-tools;30.0.3" || true
-              
-              echo "=== 3. ПРИНУДИТЕЛЬНО УКАЗЫВАЕМ ПУТЬ ДЛЯ GRADLE ==="
-              echo "sdk.dir=$ANDROID_HOME" > $TERMUX_PKG_SRCDIR/local.properties
-          }
-          EOF
+          echo "=== 2. Создаем свой SDK в кэш-папке (которая пробросится в Докер с правами) ==="
+          SDK_DIR=$HOME/.termux-build/android-sdk
+          mkdir -p $SDK_DIR/cmdline-tools
+          cd $SDK_DIR/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9123335_latest.zip
+          unzip -q commandlinetools-linux-9123335_latest.zip
+          mv cmdline-tools latest
+          
+          echo "=== 3. Качаем 33-й API в нашу новую папку ==="
+          yes | ./latest/bin/sdkmanager --sdk_root=$SDK_DIR "platforms;android-33" "build-tools;30.0.3"
+          yes | ./latest/bin/sdkmanager --sdk_root=$SDK_DIR --licenses >/dev/null 2>&1 || true
+          
+          echo "=== 4. ГЕНЕРАЛЬНЫЙ ХАК: Переписываем пути во всех сборочных скриптах Termux ==="
+          cd $GITHUB_WORKSPACE
+          find scripts -type f -exec sed -i 's|/home/builder/lib/android-sdk-[0-9]*|/home/builder/.termux-build/android-sdk|g' {} +
 
       - name: TEST BUILD ONLY - termux-am
         run: |
-          # Запускаем штатную сборку, наш хак сработает изнутри контейнера
+          # Запускаем штатную сборку.
+          # Теперь скрипты Termux будут думать, что SDK лежит в /home/builder/.termux-build/android-sdk
           ./scripts/run-docker.sh ./build-package.sh -a aarch64 termux-am

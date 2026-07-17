@@ -12,24 +12,22 @@ jobs:
 
       - name: Build Core Packages from Source
         run: |
-          # Фикс проблемы с правами (UID mismatch) между GitHub Actions и Docker
-          # Создаем папки на сервере и жестко отдаем права пользователю UID 1000 (builder внутри Docker)
-          mkdir -p ~/lib ~/.termux-build
-          sudo chown -R 1000:1000 ~/lib ~/.termux-build
-          sudo chmod -R 777 ~/lib ~/.termux-build
+          # 1. Запускаем контейнер вхолостую, чтобы он развернулся в фоне
+          ./scripts/run-docker.sh echo "Init container"
+          
+          # 2. Взламываем работающий контейнер от лица root и снимаем блокировку с Android SDK
+          docker exec --user root termux-package-builder chown -R builder:builder /home/builder/lib
+          docker exec --user root termux-package-builder chmod -R 777 /home/builder/lib
 
-          # Полный список базовых пакетов ядра, включая termux-am
+          # 3. Полный список пакетов без вырезаний
           PACKAGES="apt bash command-not-found coreutils curl dash debianutils dialog diffutils dos2unix ed findutils gawk gnupg gpgv grep gzip inetutils less lsof nano ncurses net-tools patch readline sed tar termux-am termux-auth termux-exec termux-keyring termux-licenses termux-tools unzip util-linux xz-utils zlib"
 
-          # Запускаем официальный компилятор Termux
+          # 4. Запускаем честную сборку (теперь Gradle сможет докачать API 33)
           ./scripts/run-docker.sh ./build-package.sh -a aarch64 $PACKAGES
 
       - name: Create Local Repository
         run: |
-          # Устанавливаем утилиты для создания репозитория
           sudo apt-get update && sudo apt-get install -y dpkg-dev python3
-          
-          # Генерируем индексные файлы для свежесобранных пакетов
           cd output
           mkdir -p dists/termux/main/binary-aarch64
           dpkg-scanpackages . /dev/null > dists/termux/main/binary-aarch64/Packages
@@ -37,21 +35,15 @@ jobs:
 
       - name: Patch repo.json
         run: |
-          # Направляем сборщик бутстрапа на наш локальный сервер
           echo '[{"url": "http://localhost:8000", "distribution": "termux", "component": "main"}]' > repo.json
 
       - name: Generate Sirin Bootstrap
         run: |
-          # Запускаем локальный сервер в фоне
           cd output
           python3 -m http.server 8000 &
           SERVER_PID=$!
           cd ..
-
-          # Запускаем упаковку (он скачает пакеты с нашего локального сервера)
           ./scripts/generate-bootstraps.sh --architectures aarch64
-
-          # Убиваем сервер
           kill $SERVER_PID
 
       - name: Upload Sirin Bootstrap

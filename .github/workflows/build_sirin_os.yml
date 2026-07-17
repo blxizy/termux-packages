@@ -10,15 +10,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
       - name: Setup Android SDK
         run: |
-          # Теперь у нас есть рабочая Java, скрипт скачает SDK без ошибок
+          # Устанавливаем Java 17 точно в ту системную папку, которую жестко требует скрипт
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk-headless
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          
+          # Теперь скрипт найдет Java там, где ожидает, и скачает SDK без ошибок
           ./scripts/setup-android-sdk.sh
 
       - name: Build Core Packages from Source

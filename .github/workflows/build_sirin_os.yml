@@ -10,7 +10,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Pre-download SDK
+      - name: Pre-download SDK and Fix Permissions
         run: |
           # 1. Готовим Java
           sudo apt-get update
@@ -20,15 +20,21 @@ jobs:
           # 2. Скачиваем официальный базовый SDK Termux
           ./scripts/setup-android-sdk.sh
           
-          # 3. ОТДЕЛЬНО принимаем лицензии (чтобы не сломать pipe при установке)
+          # 3. ОТДЕЛЬНО принимаем лицензии (чтобы не сломать pipe)
           yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/lib/android-sdk-9123335 --licenses || true
           
-          # 4. СПОКОЙНО качаем API 33 и Build-Tools 30.0.3 (без команды yes)
-          # Теперь sdkmanager не крашнется от Broken pipe и корректно переименует папки!
+          # 4. СПОКОЙНО качаем API 33 и Build-Tools 30.0.3
           /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=$HOME/lib/android-sdk-9123335 "platforms;android-33" "build-tools;30.0.3"
+          
+          # 5. БРОНЕЖИЛЕТ ПРАВ ДОСТУПА: Отдаем папку юзеру Docker (UID 1000)
+          mkdir -p ~/.termux-build ~/lib
+          sudo chown -R 1000:1000 ~/lib ~/.termux-build
+          sudo chmod -R 777 ~/lib ~/.termux-build
+          
+          # 6. ХАК: Вырезаем режим Read-Only из скрипта запуска Докера!
+          sed -i 's/:ro/:rw/g' scripts/run-docker.sh || true
 
       - name: TEST BUILD ONLY - termux-am
         run: |
-          # Запускаем докер. Он примонтирует ~/lib как READ-ONLY, 
-          # но теперь там УЖЕ лежат нужные API, и Gradle соберет всё без скачиваний!
+          # Собираем ТОЛЬКО проблемный пакет
           ./scripts/run-docker.sh ./build-package.sh -a aarch64 termux-am
